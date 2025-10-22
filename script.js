@@ -17,7 +17,8 @@ function handleFile(event) {
       const workbook = XLSX.read(data, { type: "array" });
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+      // MODIFIED: Ensure dates are read correctly if Excel has date cells
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { cellDates: true });
 
       if (jsonData.length > 0) {
         const chartData = processParticipationData(jsonData);
@@ -34,29 +35,67 @@ function handleFile(event) {
   reader.readAsArrayBuffer(file);
 }
 
+// MODIFIED: Intha function-a mothama maathirukkom
 function processParticipationData(jsonData) {
   const participationData = {};
   const allSections = new Set();
+  
+  // NEW: Month names array, idhu labels create panna use aagum
+  const monthNames = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  ];
 
   jsonData.forEach((row) => {
     const year = row.Year;
+    // NEW: Month data-va Excel-lendhu edukkrom (Number 1-12 nu assume panrom)
+    const month = row.Month; 
     const section = row.Section;
     const status = row.Status;
 
-    if (status && status.toLowerCase() === "participated" && year && section) {
+    // NEW: Month data-vum irukka-nu check panrom
+    if (status && status.toLowerCase() === "participated" && year && month && section) {
+      
+      // NEW: Month number sariya irukka-nu check panrom (1-12)
+      if (month < 1 || month > 12) {
+        console.warn("Invalid month number:", month, row);
+        return; // Thavarana month-a skip panrom
+      }
+
+      // NEW: "2024-Jan", "2024-Feb" mathiri label create panrom
+      const yearMonthLabel = `${year}-${monthNames[month - 1]}`;
+
       allSections.add(section);
-      if (!participationData[year]) {
-        participationData[year] = {};
+      
+      // NEW: Data-va year[section] ku pathila yearMonth[section]-la store panrom
+      if (!participationData[yearMonthLabel]) {
+        participationData[yearMonthLabel] = {};
       }
-      if (!participationData[year][section]) {
-        participationData[year][section] = 0;
+      if (!participationData[yearMonthLabel][section]) {
+        participationData[yearMonthLabel][section] = 0;
       }
-      participationData[year][section]++;
+      participationData[yearMonthLabel][section]++;
     }
   });
 
-  const labels = Object.keys(participationData).sort();
+  // NEW: Labels ippo '2023-Jan', '2023-Feb' mathiri irukkum
+  const labels = Object.keys(participationData);
   const sections = Array.from(allSections).sort();
+
+  // NEW: Labels-a alphabetical-a sort panrathukku pathila, chronological-a (kaala varisaippadi) sort panrom
+  labels.sort((a, b) => {
+    const [yearA, monthStrA] = a.split('-');
+    const [yearB, monthStrB] = b.split('-');
+    
+    const monthA = monthNames.indexOf(monthStrA);
+    const monthB = monthNames.indexOf(monthStrB);
+
+    if (yearA !== yearB) {
+      return parseInt(yearA) - parseInt(yearB); // Year vechu sort panrom
+    }
+    return monthA - monthB; // Same year-a irundha, month vechu sort panrom
+  });
+
 
   const colors = [
     "rgba(255, 99, 132, 0.7)",
@@ -68,8 +107,9 @@ function processParticipationData(jsonData) {
   ];
 
   const datasets = sections.map((section, index) => {
-    const data = labels.map((year) => {
-      return participationData[year][section] || 0;
+    // MODIFIED: 'year'-ku pathila 'yearMonthLabel' use panrom
+    const data = labels.map((yearMonthLabel) => {
+      return participationData[yearMonthLabel][section] || 0;
     });
     return {
       label: `Section ${section}`,
@@ -110,20 +150,22 @@ function createOrUpdateChart(chartData) {
         x: {
           title: {
             display: true,
-            text: "Year",
+            // MODIFIED: X-axis title-a maathirukkom
+            text: "Year-Month",
           },
         },
       },
       plugins: {
         title: {
           display: true,
-          text: "CSE Department Event Participation (Year & Section Wise)",
+          // MODIFIED: Title-a konjam update pannirukkom
+          text: "CSE Department Event Participation (Month Wise)",
           font: {
             size: 18,
           },
         },
         legend: {
-          display: true, // Legend ippo thevai, adhanaala 'true' nu maathrom
+          display: true,
           position: "top",
         },
         tooltip: {
